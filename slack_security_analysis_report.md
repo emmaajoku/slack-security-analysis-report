@@ -20,6 +20,15 @@ This report provides a comprehensive analysis of Slack's security architecture, 
      - Time-based access restrictions
      - Device-based restrictions
 
+### **1.3 Threat Model & Attack Vectors**  
+| **Attack Vector**          | **Impact**               | **Mitigation**                          |
+|----------------------------|--------------------------|-----------------------------------------|
+| Compromised bot tokens     | Full workspace access    | Rotate tokens, restrict IP ranges       |
+| Misconfigured app scopes   | Data exfiltration        | Follow least-privilege, review quarterly|
+| Legacy token usage         | Bypass OAuth controls    | Disable legacy tokens via `api.slack.com/methods/auth.revoke` |
+| SSO phishing              | Account takeover         | Enforce MFA, monitor login geography   |
+| Malicious Slack apps      | Backdoor access          | Restrict app installations to admins    |
+
 2. **API Authentication**
    - **Token Types & Security**
      - Bot tokens (xoxb-*)
@@ -143,7 +152,22 @@ This report provides a comprehensive analysis of Slack's security architecture, 
      - Access policies
      - Audit logging
      - Data retention
+  
+      #### **Enterprise Key Management (EKM)**  
+      Slack’s EKM allows enterprises to control encryption keys for message data:  
+      - **How it works**: Customer-managed keys (AWS KMS, GCP KMS) decrypt data in real-time.  
+      - **Coverage**: Messages, files, app data (excludes metadata like timestamps).  
+      - **Setup**: Requires Enterprise Grid + Slack support contact.  
+      - **Reference**: [Slack EKM Docs](https://slack.com/help/articles/360000360443-Enterprise-Key-Management-EKM)  
 
+      **Example Policy**:  
+      ```yaml
+      # Sample Terraform for EKM (hypothetical)
+      resource "slack_ekm_policy" "prod" {
+        workspace_id    = "T123456"
+        kms_key_arn    = aws_kms_key.slack.arn
+        allowed_admins = ["user@domain.com"]}
+        ```
 ### 3.2 Compliance Requirements
 1. **Regulatory Compliance**
    - **Data Protection**
@@ -157,6 +181,15 @@ This report provides a comprehensive analysis of Slack's security architecture, 
      - Change history
      - Security events
      - Compliance reports
+
+### **3.3 Slack’s Security Certifications**  
+    Slack maintains the following compliance attestations:  
+    - **SOC 2 Type II**: Annual audit for data security ([Report via Trust Portal](https://slack.com/trust))  
+    - **ISO 27001**: Certified information security management  
+    - **HIPAA**: Available for Enterprise Grid with BAA  
+    - **FedRAMP**: In process (as of 2024)  
+  
+    **Action Item**: Request Slack’s latest compliance reports from your account manager.  
 
 2. **Enterprise Controls**
    - **Data Governance**
@@ -511,7 +544,22 @@ if __name__ == "__main__":
    - Enable auditing
    - Implement tracking
 
-### 7.2 Long-term Strategy
+### **7.2 Immediate Actions**  
+#### **Quarterly Access Review Checklist**  
+1. **User Access**  
+   - [ ] Review inactive users (`users.list?presence=away`)  
+   - [ ] Validate guest account necessity  
+2. **App Permissions**  
+   - [ ] Audit installed apps (`admin.apps.approved.list`)  
+   - [ ] Remove apps with unused scopes  
+3. **Token Hygiene**  
+   - [ ] Rotate bot tokens (`auth.rotate`)  
+   - [ ] Revoke legacy tokens (`auth.revoke`)  
+4. **Compliance**  
+   - [ ] Pull Slack audit logs (`auditlogs.list`)  
+   - [ ] Verify EKM key rotation (if applicable)  
+
+### 7.3 Long-term Strategy
 1. **Security Program**
    - Regular assessments
    - Policy updates
@@ -529,167 +577,4 @@ if __name__ == "__main__":
 2. Slack Security Best Practices
 3. OAuth 2.0 Specification
 4. Enterprise Security Guidelines
-5. Compliance Requirements 
-
-## 8. Threat Model & Attack Vectors
-
-### 8.1 Attack Vectors
-1. **Token-Based Attacks**
-   - Compromised bot tokens
-   - Stolen user tokens
-   - Token exposure in logs
-   - Token reuse attacks
-   - Token theft via phishing
-
-2. **App-Based Attacks**
-   - Misconfigured app permissions
-   - Malicious app installations
-   - App token compromise
-   - OAuth scope abuse
-   - App impersonation
-
-3. **User-Based Attacks**
-   - Compromised user accounts
-   - Social engineering
-   - Insider threats
-   - Privilege escalation
-   - Account takeover
-
-4. **Integration Attacks**
-   - Webhook interception
-   - Event subscription abuse
-   - API rate limiting bypass
-   - Data exfiltration
-   - Man-in-the-middle attacks
-
-### 8.2 Mitigation Strategies
-1. **Token Security**
-   - Regular token rotation
-   - Scope minimization
-   - Token monitoring
-   - Access revocation
-   - Token encryption
-
-2. **App Security**
-   - App manifest validation
-   - Permission auditing
-   - Security scanning
-   - Access monitoring
-   - Incident response
-
-3. **User Security**
-   - MFA enforcement
-   - Access monitoring
-   - Behavior analysis
-   - Security training
-   - Incident detection
-
-## 9. Enterprise Key Management (EKM)
-
-### 9.1 EKM Features
-1. **Data Encryption**
-   - End-to-end encryption
-   - Key rotation
-   - Key escrow
-   - Key recovery
-   - Audit logging
-
-2. **Access Controls**
-   - Role-based access
-   - Time-based access
-   - IP-based restrictions
-   - Device controls
-   - Audit requirements
-
-3. **Compliance Features**
-   - Data retention
-   - Legal hold
-   - Export capabilities
-   - Audit trails
-   - Compliance reporting
-
-### 9.2 Implementation
-1. **Setup Requirements**
-   - Enterprise Grid subscription
-   - EKM activation
-   - Key configuration
-   - Access policies
-   - Audit setup
-
-2. **Management**
-   - Key rotation
-   - Access review
-   - Policy updates
-   - Compliance monitoring
-   - Incident response
-
-## 10. Administrative Checklist
-
-### 10.1 Quarterly Access Review
-1. **User Access**
-   - [ ] Review external users
-   - [ ] Audit guest accounts
-   - [ ] Check SSO integration
-   - [ ] Verify MFA status
-   - [ ] Review admin accounts
-
-2. **App Access**
-   - [ ] List installed apps
-   - [ ] Review permissions
-   - [ ] Check app activity
-   - [ ] Verify app security
-   - [ ] Update app policies
-
-3. **Token Management**
-   - [ ] Audit active tokens
-   - [ ] Review token usage
-   - [ ] Rotate tokens
-   - [ ] Update scopes
-   - [ ] Clean up unused tokens
-
-### 10.2 Monthly Security Tasks
-1. **Monitoring**
-   - [ ] Review security logs
-   - [ ] Check audit trails
-   - [ ] Monitor alerts
-   - [ ] Review incidents
-   - [ ] Update policies
-
-2. **Maintenance**
-   - [ ] Update security settings
-   - [ ] Review integrations
-   - [ ] Check compliance
-   - [ ] Update documentation
-   - [ ] Train users
-
-## 11. Security Certifications & Compliance
-
-### 11.1 Slack Certifications
-1. **Industry Standards**
-   - SOC 2 Type II
-   - ISO 27001
-   - ISO 27018
-   - FedRAMP
-   - HIPAA
-
-2. **Compliance Features**
-   - Data protection
-   - Access control
-   - Audit logging
-   - Incident response
-   - Security monitoring
-
-### 11.2 Enterprise Requirements
-1. **Security Controls**
-   - Encryption standards
-   - Access management
-   - Data protection
-   - Incident response
-   - Compliance reporting
-
-2. **Compliance Tools**
-   - Audit logs
-   - Security reports
-   - Compliance dashboards
-   - Policy management
-   - Risk assessment 
+5. Compliance Requirements
