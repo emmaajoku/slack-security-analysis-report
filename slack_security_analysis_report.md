@@ -154,7 +154,7 @@ This report provides a comprehensive analysis of Slack's security architecture, 
      - Data retention
   
       #### **Enterprise Key Management (EKM)**  
-      Slack’s EKM allows enterprises to control encryption keys for message data:  
+      Slack's EKM allows enterprises to control encryption keys for message data:  
       - **How it works**: Customer-managed keys (AWS KMS, GCP KMS) decrypt data in real-time.  
       - **Coverage**: Messages, files, app data (excludes metadata like timestamps).  
       - **Setup**: Requires Enterprise Grid + Slack support contact.  
@@ -182,14 +182,14 @@ This report provides a comprehensive analysis of Slack's security architecture, 
      - Security events
      - Compliance reports
 
-### **3.3 Slack’s Security Certifications**  
+### **3.3 Slack's Security Certifications**  
     Slack maintains the following compliance attestations:  
     - **SOC 2 Type II**: Annual audit for data security ([Report via Trust Portal](https://slack.com/trust))  
     - **ISO 27001**: Certified information security management  
     - **HIPAA**: Available for Enterprise Grid with BAA  
     - **FedRAMP**: In process (as of 2024)  
   
-    **Action Item**: Request Slack’s latest compliance reports from your account manager.  
+    **Action Item**: Request Slack's latest compliance reports from your account manager.  
 
 2. **Enterprise Controls**
    - **Data Governance**
@@ -211,8 +211,9 @@ This report provides a comprehensive analysis of Slack's security architecture, 
 import os
 import json
 import logging
-from datetime import datetime
-from typing import Dict, List, Any
+import time
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.oauth import OpenIDConnectAuthorizeUrlGenerator
@@ -234,7 +235,85 @@ class SlackSecurityAnalyzer:
         self.console = Console()
         self.client = self._initialize_client()
         self.audit_log = []
+        self.rate_limit_delay = config.get('rate_limit_delay', 1)
         
+    def _handle_rate_limit(self, error: SlackApiError) -> None:
+        """Handle rate limiting with exponential backoff."""
+        if error.response['error'] == 'ratelimited':
+            retry_after = int(error.response.headers.get('Retry-After', self.rate_limit_delay))
+            logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+            time.sleep(retry_after)
+            self.rate_limit_delay *= 2  # Exponential backoff
+
+    def get_audit_logs(self, 
+                      start_time: Optional[datetime] = None,
+                      end_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Fetch audit logs with pagination and rate limit handling."""
+        try:
+            logs = []
+            cursor = None
+            while True:
+                response = self.client.audit_logs_list(
+                    cursor=cursor,
+                    limit=1000,
+                    oldest=start_time.timestamp() if start_time else None,
+                    latest=end_time.timestamp() if end_time else None
+                )
+                logs.extend(response['entries'])
+                cursor = response.get('response_metadata', {}).get('next_cursor')
+                if not cursor:
+                    break
+                self._handle_rate_limit(SlackApiError(response))
+            self._log_audit("audit_logs_list", "success")
+            return logs
+        except SlackApiError as e:
+            logger.error(f"Failed to fetch audit logs: {e.response['error']}")
+            self._log_audit("audit_logs_list", "error")
+            raise
+
+    def rotate_token(self) -> Dict[str, Any]:
+        """Rotate bot token with proper error handling."""
+        try:
+            response = self.client.auth_rotate()
+            self._log_audit("token_rotation", "success")
+            return response
+        except SlackApiError as e:
+            logger.error(f"Failed to rotate token: {e.response['error']}")
+            self._log_audit("token_rotation", "error")
+            raise
+
+    def revoke_token(self, token: str) -> Dict[str, Any]:
+        """Revoke a specific token."""
+        try:
+            response = self.client.auth_revoke(token=token)
+            self._log_audit("token_revocation", "success")
+            return response
+        except SlackApiError as e:
+            logger.error(f"Failed to revoke token: {e.response['error']}")
+            self._log_audit("token_revocation", "error")
+            raise
+
+    def get_slack_connect_channels(self) -> List[Dict[str, Any]]:
+        """Fetch Slack Connect channels with security analysis."""
+        try:
+            response = self.client.conversations_list(types="external_shared")
+            channels = response['channels']
+            self._analyze_connect_security(channels)
+            self._log_audit("connect_channels_list", "success")
+            return channels
+        except SlackApiError as e:
+            logger.error(f"Failed to fetch Slack Connect channels: {e.response['error']}")
+            self._log_audit("connect_channels_list", "error")
+            raise
+
+    def _analyze_connect_security(self, channels: List[Dict[str, Any]]) -> None:
+        """Analyze Slack Connect channel security."""
+        for channel in channels:
+            if self._has_sensitive_data(channel):
+                self._generate_security_alert(channel)
+            if self._needs_security_review(channel):
+                self._schedule_review(channel)
+
     def _initialize_client(self) -> WebClient:
         """Initialize Slack client with proper error handling."""
         try:
@@ -386,14 +465,17 @@ if __name__ == "__main__":
 {
   "info": {
     "name": "Slack Security Analysis",
+    "description": "Collection of Slack API endpoints for security analysis and monitoring",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
       "name": "User Management",
+      "description": "Endpoints for managing user access and permissions",
       "item": [
         {
           "name": "List Users",
+          "description": "Retrieve all users in the workspace with pagination",
           "request": {
             "method": "GET",
             "header": [
@@ -414,9 +496,11 @@ if __name__ == "__main__":
     },
     {
       "name": "App Management",
+      "description": "Endpoints for managing Slack apps and integrations",
       "item": [
         {
           "name": "List Installed Apps",
+          "description": "Retrieve all installed apps with their permissions",
           "request": {
             "method": "GET",
             "header": [
@@ -434,10 +518,160 @@ if __name__ == "__main__":
           }
         }
       ]
+    },
+    {
+      "name": "Security & Audit",
+      "description": "Endpoints for security monitoring and audit logging",
+      "item": [
+        {
+          "name": "Get Audit Logs",
+          "description": "Retrieve audit logs with filtering and pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{slack_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://slack.com/api/auditlogs.list",
+              "protocol": "https",
+              "host": ["slack", "com"],
+              "path": ["api", "auditlogs", "list"]
+            }
+          }
+        },
+        {
+          "name": "Rotate Token",
+          "description": "Rotate the current bot token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{slack_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://slack.com/api/auth.rotate",
+              "protocol": "https",
+              "host": ["slack", "com"],
+              "path": ["api", "auth", "rotate"]
+            }
+          }
+        },
+        {
+          "name": "Revoke Token",
+          "description": "Revoke a specific token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{slack_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://slack.com/api/auth.revoke",
+              "protocol": "https",
+              "host": ["slack", "com"],
+              "path": ["api", "auth", "revoke"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Slack Connect",
+      "description": "Endpoints for managing external collaborations",
+      "item": [
+        {
+          "name": "List Connect Channels",
+          "description": "Retrieve all Slack Connect channels",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{slack_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://slack.com/api/conversations.list",
+              "protocol": "https",
+              "host": ["slack", "com"],
+              "path": ["api", "conversations", "list"],
+              "query": [
+                {
+                  "key": "types",
+                  "value": "external_shared"
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   ]
 }
 ```
+
+## 8. Slack Connect Security Considerations
+
+### 8.1 External Collaboration Risks
+1. **Data Exposure**
+   - **Channel Access**
+     - External user permissions
+     - Data sharing controls
+     - Channel visibility
+     - Message retention
+   
+   - **Security Controls**
+     - Domain restrictions
+     - User verification
+     - Access monitoring
+     - Data classification
+
+2. **Compliance Risks**
+   - **Data Protection**
+     - Cross-border data flow
+     - Regulatory requirements
+     - Data sovereignty
+     - Privacy controls
+   
+   - **Audit Requirements**
+     - Access logging
+     - Activity monitoring
+     - Compliance reporting
+     - Incident tracking
+
+### 8.2 Risk Mitigation
+1. **Access Controls**
+   - **User Management**
+     - External user verification
+     - Role-based access
+     - Time-based restrictions
+     - Device controls
+   
+   - **Channel Security**
+     - Channel creation policies
+     - Message retention rules
+     - File sharing controls
+     - Integration restrictions
+
+2. **Monitoring & Response**
+   - **Security Monitoring**
+     - Real-time alerts
+     - Activity tracking
+     - Anomaly detection
+     - Incident response
+   
+   - **Compliance Monitoring**
+     - Policy enforcement
+     - Audit logging
+     - Compliance reporting
+     - Risk assessment
 
 ## 5. Security Monitoring & Maintenance
 
